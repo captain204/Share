@@ -1,43 +1,108 @@
-from flask import (Blueprint,flash, render_template, url_for, redirect)
-from flask_login import login_user, logout_user, current_user
+from flask import (
+    Blueprint,
+    redirect,
+    request,
+    flash,
+    url_for,
+    render_template,session)
+from flask_login import (
+    login_required,
+    login_user,
+    current_user,
+    logout_user)
+
+from werkzeug.security import (generate_password_hash, 
+                               check_password_hash)
+from application import db,login_manager
+
+from application.users.models import(
+     User) 
+
+from application.users.forms import (
+     SignupForm,
+     LoginForm)
+
+user = Blueprint('user', __name__, template_folder='templates')
 
 
-from wtforms import Form
-from wtforms import StringField, PasswordField
-from wtforms.validators import DataRequired, Length
+@user.route('/signup', methods=['GET','POST'])
+def signup():
+    """User sign-up page."""
+    form = SignupForm(request.form)
+    # POST: Sign user in
+    if request.method == 'POST':
+        if form.validate():
+            # Get Form Fields
+            username = request.form.get('username')
+            email = request.form.get('email')
+            password = request.form.get('password')
+            existing_user = User.query.filter_by(email=email).first()
+            if existing_user is None:
+                user = User(username=username,email=email,password=generate_password_hash(password, method='sha256'))   
+                db.session.add(user)
+                db.session.commit()
+                login_user(user)
+                return redirect(url_for('user.dashboard'))
+            flash('A user already exists with that email address.')
+            return redirect(url_for('user.dashboard'))
+    # GET: Serve Sign-up page
+    return render_template('users/signup.html', form=form)
 
-#from models import User
-from application import flask_bcrypt
-
-users = Blueprint('users', __name__, template_folder='templates')
-
-class LoginForm(Form):
-
-    username = StringField('username', validators=[DataRequired()])
-    password = PasswordField('password', validators=[DataRequired(),Length(min=6)])
 
 
-
-@users.route('/login', methods=['GET', 'POST'])
+@user.route('/login', methods=['GET','POST'])
 def login():
-    if current_user.is_authenticated():
-       return "User already authenticated"
-    form = LoginForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(username=form.username.data).first()
-        if not user:
-            flash("No such user exists.")
-            return render_template('users/login.html', form=form)
-        if(not flask_bcrypt.check_password_hash(user.password,form.password.data)):
-            flash("Invalid password.")
-            return render_template('users/login.html', form=form)
-            login_user(user, remember=True)
-            flash("Success!You're logged in.")
-            return redirect(url_for("snaps.listing"))
-    return render_template('users/login.html', form=form)
+    """User login page."""
+    # Bypass Login screen if user is logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('user.dashboard'))
+    form = LoginForm(request.form)
+    # POST: Create user and redirect them to the app
+    if request.method == 'POST':
+        if form.validate():
+            #Get Form Fields
+            email = request.form.get('email')
+            password = request.form.get('password')
+            # Validate Login Attempt
+            user = User.query.filter_by(email=email).first()
+            if user:
+                if user.check_password(password=password):
+                    login_user(user)
+                    next = request.args.get('next')
+                    session['user_id'] = user.id
+                    return redirect(next or url_for('user.dashboard'))
+        flash('Invalid username/password combination')
+        return redirect(url_for('user.login'))
+    #GET: Serve Log-in page
+    return render_template('users/login.html', form=form) 
 
 
-@users.route('/logout', methods=['GET'])
-def logout():
+
+@user.route('/dashboard', methods=['GET','POST'])
+@login_required
+def dashboard():
+    return render_template('users/dashboard.html')
+
+
+@user.route("/logout")
+@login_required
+def logout_page():
+    """User log-out logic."""
     logout_user()
-    return "Logout successfull"
+    return redirect(url_for('user.login'))
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Check if user is logged-in on every page load."""
+    if user_id is not None:
+        return User.query.get(user_id)
+    return None
+
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    """ Redirect unauthorized users to Login page ."""
+    flash('You must be logged in to view that page.')
+    return redirect(url_for('user.login'))
+

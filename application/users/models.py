@@ -1,46 +1,34 @@
-from application import db, flask_bcrypt
-import datetime
-from sqlalchemy.ext.hybrid import hybrid_property
+from application import db
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+from application.listings.models import(
+    Listings) 
+from datetime import datetime
 
-class User(db.Model):
 
-    # The hashed password for the user
-    _password = db.Column('password', db.String(60))
 
-    @hybrid_property
-    def password(self):
-        """The bcrypt'ed password of the given user."""
-        return self._password
 
-    @password.setter
-    def password(self, password):
-        """Bcrypt the password on assignment."""
-        self._password = flask_bcrypt.generate_password_hash(password)
 
-    
+class User(UserMixin, db.Model):
+    """User Model """
 
+    __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(255), unique=True)
-    username = db.Column(db.String(40), unique=True)
-    created_on = db.Column(db.DateTime,default=datetime.datetime.utcnow)
+    username = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password = db.Column(db.String(250), unique=True, nullable=False)
+    listings = db.relationship('Listings', backref=db.backref('listings',lazy=True))
+    created_on = db.Column(db.DateTime,default=datetime.utcnow)
+    
+
+    def set_password(self,password):
+        """Create User Password """
+        self.password = generate_password_hash(password,method='sha256')
+
+    def check_password(self,password):
+        """Check Hashed Password"""
+        return check_password_hash(self.password,password)
 
     def __repr__(self):
-        return '<User {!r}>'.format(self.username)
-
-    def is_authenticated(self):
-        """All our registered users are authenticated."""
-        return True
-
-    def is_active(self):
-        """All our users are active."""
-        return True
-
-    def is_anonymous(self):
-        return False
-
-    def get_id(self):
-        """Get the user ID as a Unicode string."""
-        return unicode(self.id)
-
-    
+        return '<User {}>'.format(self.username)
